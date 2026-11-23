@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FinNews AI</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,400;6..72,600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+:root{
+  --bg:#F2F5F7; --surface:#FFFFFF; --ink:#14202B; --muted:#5A6978;
+  --rule:#D5DCE2; --accent:#0F6B63; --accent-ink:#FFFFFF; --soft:#E3F0EE; --err:#B3261E;
+  --serif:"Newsreader",Georgia,serif; --sans:"IBM Plex Sans",system-ui,sans-serif;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.55 var(--sans)}
+.wrap{max-width:760px;margin:0 auto;padding:40px 20px 80px}
+h1{font:600 clamp(2rem,6vw,3rem)/1.1 var(--serif);margin:0 0 8px;letter-spacing:-.01em}
+.lede{color:var(--muted);margin:0 0 28px;max-width:52ch}
+.controls{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:28px}
+select,button{font:inherit;border-radius:6px;padding:10px 14px;border:1px solid var(--rule);background:var(--surface);color:var(--ink)}
+button.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent);font-weight:600;cursor:pointer}
+button:disabled{opacity:.6;cursor:wait}
+:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+.status{font-size:.9rem;color:var(--muted);margin-left:auto}
+.status.bad{color:var(--err)}
+.alert{background:#FBEAE8;border:1px solid #E7B9B4;color:#6E1710;padding:12px 14px;border-radius:6px;margin-bottom:20px}
+article{background:var(--surface);border:1px solid var(--rule);border-radius:8px;padding:22px 22px 18px;margin-bottom:18px}
+.meta{font-size:.82rem;color:var(--muted);margin-bottom:6px}
+.orig{font-size:.9rem;color:var(--muted);margin:0 0 14px}
+h2{font:600 1.55rem/1.25 var(--serif);margin:0 0 10px}
+.summary{font:400 1.12rem/1.6 var(--serif);margin:0 0 14px}
+.why{background:var(--soft);border-left:4px solid var(--accent);padding:10px 14px;border-radius:0 6px 6px 0;margin:0 0 14px}
+.why b{display:block;font-size:.85rem;margin-bottom:2px}
+ul{margin:0 0 14px;padding-left:20px}
+li{margin-bottom:4px}
+details{border-top:1px solid var(--rule);padding-top:10px}
+summary{cursor:pointer;font-weight:500}
+dl{margin:10px 0 0}dt{font-weight:600}dd{margin:0 0 8px;color:var(--muted)}
+a{color:var(--accent)}
+.skeleton{height:190px;border-radius:8px;margin-bottom:18px;background:linear-gradient(90deg,#E6EBEF 25%,#F2F5F7 50%,#E6EBEF 75%);background-size:200% 100%;animation:sh 1.3s infinite}
+@keyframes sh{to{background-position:-200% 0}}
+@media (prefers-reduced-motion:reduce){.skeleton{animation:none}}
+</style>
+</head>
+<body>
+<main class="wrap">
+  <h1>FinNews AI</h1>
+  <p class="lede">The latest financial headlines, rewritten in plain language, with the jargon explained.</p>
+
+  <div class="controls">
+    <label class="sr" for="cat" style="position:absolute;left:-9999px">Category</label>
+    <select id="cat">
+      <option value="business">Business</option>
+      <option value="technology">Technology</option>
+      <option value="general">General</option>
+    </select>
+    <select id="count" aria-label="Number of articles">
+      <option value="3">3 articles</option>
+      <option value="5" selected>5 articles</option>
+      <option value="8">8 articles</option>
+    </select>
+    <button id="go" class="primary">Fetch &amp; Simplify</button>
+    <span id="status" class="status" role="status"></span>
+  </div>
+
+  <div id="error"></div>
+  <div id="results"></div>
+</main>
+
+<script>
+const $ = id => document.getElementById(id);
+// Same origin by default. If you open index.html separately, set this to "http://127.0.0.1:8000".
+const API = "";
+
+function el(tag, text, cls){
+  const n = document.createElement(tag);
+  if (text != null) n.textContent = text;   // textContent keeps external article text from running as HTML
+  if (cls) n.className = cls;
+  return n;
+}
+
+function card(a){
+  const c = document.createElement("article");
+  const when = a.published_at ? new Date(a.published_at).toLocaleString() : "";
+  c.append(el("div", `${a.source}${when ? " - " + when : ""}`, "meta"));
+
+  if (a.error || !a.ai){
+    c.append(el("h2", a.title));
+    c.append(el("p", `Could not simplify this article: ${a.error || "unknown error"}`, "orig"));
+  } else {
+    const ai = a.ai;
+    c.append(el("h2", ai.plain_headline || a.title));
+    c.append(el("p", `Original headline: ${a.title}`, "orig"));
+    c.append(el("p", ai.summary, "summary"));
+    if (ai.why_it_matters){
+      const w = el("div", null, "why");
+      w.append(el("b", "Why it matters"), el("span", ai.why_it_matters));
+      c.append(w);
+    }
+    if (ai.key_takeaways?.length){
+      const ul = document.createElement("ul");
+      ai.key_takeaways.forEach(t => ul.append(el("li", t)));
+      c.append(ul);
+    }
+    if (ai.jargon?.length){
+      const d = document.createElement("details");
+      d.append(el("summary", "Terms explained"));
+      const dl = document.createElement("dl");
+      ai.jargon.forEach(j => { dl.append(el("dt", j.term), el("dd", j.meaning)); });
+      d.append(dl);
+      c.append(d);
+    }
+  }
+  if (a.url){
+    const p = document.createElement("p");
+    const l = el("a", "Read the original article");
+    l.href = a.url; l.target = "_blank"; l.rel = "noopener noreferrer";
+    p.append(l); c.append(p);
+  }
+  return c;
+}
+
+async function run(){
+  const btn = $("go"), res = $("results"), err = $("error"), st = $("status");
+  btn.disabled = true; err.replaceChildren(); st.className = "status"; st.textContent = "Fetching and simplifying...";
+  res.replaceChildren(...Array.from({length: +$("count").value}, () => el("div", null, "skeleton")));
+  try{
+    const r = await fetch(`${API}/api/fetch-and-simplify?category=${$("cat").value}&count=${$("count").value}`);
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.detail || `Request failed (${r.status})`);
+    res.replaceChildren(...data.articles.map(card));
+    st.textContent = `Updated ${new Date().toLocaleTimeString()}`;
+  }catch(e){
+    res.replaceChildren();
+    err.append(el("div", e.message, "alert"));
+    st.textContent = ""; 
+  }finally{ btn.disabled = false; }
+}
+
+$("go").addEventListener("click", run);
+fetch(`${API}/api/health`).then(r => r.json()).then(h => {
+  if (!h.news_api_configured || !h.groq_configured){
+    $("error").append(el("div", "Missing API key. Add NEWS_API_KEY and GROQ_API_KEY to your .env file and restart the server.", "alert"));
+  }
+}).catch(() => {});
+</script>
+</body>
+</html>
